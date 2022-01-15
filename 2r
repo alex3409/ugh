@@ -376,6 +376,131 @@ function ValiantAimHacks.getClosestPlayerToCursor()
     ValiantAimHacks.SelectedPart = TargetPart
 end
 
+-- // Beizer Aim Curves
+ValiantAimHacks.BeizerCurve = {}
+do
+    -- // Vars
+    local ValiantAimHacksBeizerCurve = ValiantAimHacks.BeizerCurve
+
+    -- // Functions
+    function ValiantAimHacks.BeizerCurve.Cubic(t, StartPoint, EndPoint, ControlPointA, ControlPointB)
+        local t1 = (1 - t)
+
+        local A = t1^3 * StartPoint
+        local B = 3 * t1^2 * t * ControlPointA
+        local C = 3 * t1 * t^2 * ControlPointB
+        local D = t^3 * EndPoint
+
+        return A + B + C + D
+    end
+    local function DoControlPoint(StartPoint, EndPoint, ControlPointA, ControlPointB)
+        -- //
+        local Change = (EndPoint - StartPoint)
+
+        -- // Calculate the control points - relative to the start and end points
+        local A = StartPoint + (Change * ControlPointA)
+        local B = StartPoint + (Change * ControlPointB)
+
+        -- //
+        return A, B
+    end
+
+    -- // Vars
+    local t = 0
+    local tThreshold = 0.99995
+    local StartPoint = Vector2new()
+    local EndPoint = Vector2new()
+    local CurvePoints = {
+        Vector2.new(0.83, 0),
+        Vector2.new(0.17, 1)
+    }
+    local IsActive = false
+    local Smoothness = 0.0025
+    local DrawPath = false
+
+    -- // AimTo with Beizer Curves
+    function ValiantAimHacks.BeizerCurve.AimTo(Data)
+        -- // Vars
+        local MousePosition = GetMouseLocation(UserInputService)
+        StartPoint = MousePosition
+        EndPoint = Data.TargetPosition
+        Smoothness = Data.Smoothness or Smoothness
+        CurvePoints = Data.CurvePoints or CurvePoints
+        DrawPath = Data.DrawPath or DrawPath
+
+        -- // Set Active
+        t = 0
+        IsActive = true
+    end
+
+    -- //
+    RunService:BindToRenderStep("AimLockBeizer", 0, function()
+        -- // Make sure is active
+        if (not IsActive) then
+            return
+        end
+
+        -- // Vars
+        local BeizerCurve = ValiantAimHacksBeizerCurve.Cubic
+
+        -- // I have to do it this way because a for loop stops before hand
+        while (t <= 1 and IsActive) do RenderSteppedWait(RenderStepped)
+            -- // Increment
+            t = t + Smoothness
+
+            -- // If past threshold, then do regular smoothing
+            if (t >= tThreshold) then
+                -- // Regular smoothing
+                local clampedT = math.clamp(t, 0, 1)
+                local New = StartPoint:Lerp(EndPoint, clampedT)
+
+                -- // Move mouse
+                mousemoveabs(New.X, New.Y)
+            else
+                -- // Work out X, Y based upon the curve
+                local A, B = DoControlPoint(StartPoint, EndPoint, unpack(CurvePoints))
+                local CurvePosition = BeizerCurve(t, StartPoint, EndPoint, A, B)
+
+                -- // Create Circle [Debugging]
+                if (DrawPath) then
+                    local Path = Drawingnew("Circle")
+                    Path.Radius = 2
+                    Path.Color = Color3fromRGB(255, 150, 150)
+                    Path.Visible = true
+                    Path.Position = CurvePosition
+                    task.delay(1, function()
+                        Path:Remove()
+                    end)
+
+                    local ControlPointA = Drawingnew("Circle")
+                    ControlPointA.Radius = 5
+                    ControlPointA.Color = Color3fromRGB(225, 150, 255)
+                    ControlPointA.Visible = true
+                    ControlPointA.Position = A
+                    task.delay(1, function()
+                        ControlPointA:Remove()
+                    end)
+
+                    local ControlPointB = Drawingnew("Circle")
+                    ControlPointB.Radius = 5
+                    ControlPointB.Color = Color3fromRGB(225, 150, 255)
+                    ControlPointB.Visible = true
+                    ControlPointB.Position = B
+                    task.delay(1, function()
+                        ControlPointB:Remove()
+                    end)
+                end
+
+                -- // Move mouse
+                mousemoveabs(CurvePosition.X, CurvePosition.Y)
+            end
+        end
+
+        -- // Reset
+        IsActive = false
+    end)
+end
+
 -- // Heartbeat Function
 Heartbeat:Connect(function()
     ValiantAimHacks.updateCircle()
@@ -383,69 +508,3 @@ Heartbeat:Connect(function()
 end)
 
 return ValiantAimHacks
-
---[[
-Examples:
-
---// Namecall Version // --
--- // Metatable Variables
-local mt = getrawmetatable(game)
-local backupindex = mt.__index
-setreadonly(mt, false)
-
--- // Load Silent Aim
-local ValiantAimHacks = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Stefanuk12/ROBLOX/master/Universal/Experimental%20Silent%20Aim%20Module.lua"))()
-
--- // Hook
-mt.__namecall = newcclosure(function(...)
-    -- // Vars
-    local args = {...}
-    local method = getnamecallmethod()
-
-    -- // Checks
-    if (method == "FireServer") then
-        if (args[1].Name == "RemoteNameHere") then
-            -- change args
-
-            -- // Return changed arguments
-            return backupnamecall(unpack(args))
-        end
-    end
-
-    -- // Return
-    return backupnamecall(...)
-end)
-
--- // Revert Metatable readonly status
-setreadonly(mt, true)
-
--- // Index Version // --
--- // Metatable Variables
-local mt = getrawmetatable(game)
-local backupindex = mt.__index
-setreadonly(mt, false)
-
--- // Load Silent Aim
-local ValiantAimHacks = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Stefanuk12/ROBLOX/master/Universal/Experimental%20Silent%20Aim%20Module.lua"))()
-
--- // Hook
-mt.__index = newcclosure(function(t, k)
-    -- // Check if it trying to get our mouse's hit or target
-    if (t:IsA("Mouse") and (k == "Hit" or k == "Target")) then
-        -- // If we can use the silent aim
-        if (ValiantAimHacks.checkSilentAim()) then
-            -- // Vars
-            local TargetPart = ValiantAimHacks.SelectedPart
-
-            -- // Return modded val
-            return (k == "Hit" and TargetPart.CFrame or TargetPart)
-        end
-    end
-
-    -- // Return
-    return backupindex(t, k)
-end)
-
--- // Revert Metatable readonly status
-setreadonly(mt, true)
-]]
